@@ -28,22 +28,72 @@
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 shadow-lg hover:shadow-xl;
+    @apply bg-primary-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors;
   }
   
   .btn-secondary {
-    @apply bg-secondary-200 hover:bg-secondary-300 text-secondary-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-secondary-100 text-secondary-800 font-semibold px-4 py-2 rounded-lg hover:bg-secondary-200 transition-colors;
   }
   
   .card {
-    @apply bg-white rounded-xl shadow-lg p-6 backdrop-blur-sm;
+    @apply bg-white rounded-lg shadow-md p-6;
   }
   
   .input-field {
-    @apply w-full px-4 py-3 border border-secondary-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all duration-200;
+    @apply w-full px-4 py-2 border border-secondary-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
   }
   
   .gradient-text {
-    @apply bg-gradient-to-r from-primary-600 to-purple-600 bg-clip-text text-transparent;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-600 to-primary-400;
   }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--secondary-100);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--secondary-300);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary-400);
+}
+
+/* Animations */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Toast customization */
+.Toastify__toast {
+  @apply rounded-lg shadow-lg;
+}
+
+.Toastify__toast--success {
+  @apply bg-green-50 text-green-800;
+}
+
+.Toastify__toast--error {
+  @apply bg-red-50 text-red-800;
+}
+
+.Toastify__toast--info {
+  @apply bg-blue-50 text-blue-800;
+}
+
+.Toastify__toast--warning {
+  @apply bg-yellow-50 text-yellow-800;
 }

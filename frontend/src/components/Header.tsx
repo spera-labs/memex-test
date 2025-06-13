@@ -59,9 +59,9 @@ const Header: React.FC<HeaderProps> = ({ wallet, onConnect, onDisconnect, isLoad
             {wallet.isConnected && (
               <>
                 <Link
-                  to="/create"
+                  to="/create-token"
                   className={`font-medium transition-colors duration-200 ${
-                    isActive('/create') 
+                    isActive('/create-token') 
                       ? 'text-primary-600 border-b-2 border-primary-600 pb-1' 
                       : 'text-secondary-600 hover:text-primary-600'
                   }`}
@@ -130,9 +130,9 @@ const Header: React.FC<HeaderProps> = ({ wallet, onConnect, onDisconnect, isLoad
           <nav className="md:hidden mt-4 pt-4 border-t border-secondary-200">
             <div className="flex space-x-6">
               <Link
-                to="/create"
+                to="/create-token"
                 className={`font-medium text-sm transition-colors duration-200 ${
-                  isActive('/create') 
+                  isActive('/create-token') 
                     ? 'text-primary-600' 
                     : 'text-secondary-600 hover:text-primary-600'
                 }`}

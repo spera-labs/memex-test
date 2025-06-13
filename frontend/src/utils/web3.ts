@@ -1,4 +1,6 @@
 import { ethers } from 'ethers';
+import BondingCurveABI from '../abis/BondingCurve.json';
+import TokenABI from '../abis/Token.json';
 
 export interface TokenData {
   address: string;
@@ -18,16 +20,16 @@ export interface BondingCurveData {
   isActive: boolean;
 }
 
-export const ABSTRACT_TESTNET_CONFIG = {
-  chainId: '0x2B6C', // 11124 in hex
-  chainName: 'Abstract Testnet',
+const ABSTRACT_TESTNET_CONFIG = {
+  chainId: '0x2B74', // 11124 in hex
+  chainName: 'Abstract L2 Testnet',
   nativeCurrency: {
     name: 'ETH',
     symbol: 'ETH',
     decimals: 18,
   },
   rpcUrls: ['https://api.testnet.abs.xyz'],
-  blockExplorerUrls: ['https://sepolia.abscan.org'],
+  blockExplorerUrls: ['https://explorer.testnet.abs.xyz'],
 };
 
 export const CONTRACT_ADDRESSES = {
@@ -70,48 +72,25 @@ export const TOKEN_ABI = [
   "function allowance(address owner, address spender) external view returns (uint256)"
 ];
 
-export class Web3Service {
+class Web3Service {
   private provider: ethers.BrowserProvider | null = null;
   private signer: ethers.Signer | null = null;
 
-  async connectWallet(): Promise<string> {
-    if (!window.ethereum) {
-      throw new Error('MetaMask not installed');
+  async init() {
+    if (typeof window.ethereum === 'undefined') {
+      throw new Error('MetaMask is not installed');
     }
 
-    try {
-      // Request account access
-      await window.ethereum.request({ method: 'eth_requestAccounts' });
-      
-      this.provider = new ethers.BrowserProvider(window.ethereum);
-      this.signer = await this.provider.getSigner();
-      
-      // Check if we're on the correct network
-      const network = await this.provider.getNetwork();
-      if (network.chainId !== BigInt(11124)) {
-        await this.switchToAbstractTestnet();
-      }
-      
-      const address = await this.signer.getAddress();
-      return address;
-    } catch (error) {
-      console.error('Error connecting wallet:', error);
-      throw error;
-    }
-  }
+    this.provider = new ethers.BrowserProvider(window.ethereum);
+    this.signer = await this.provider.getSigner();
 
-  async switchToAbstractTestnet(): Promise<void> {
-    if (!window.ethereum) {
-      throw new Error('MetaMask not installed');
-    }
-
+    // Add Abstract Testnet to MetaMask if not already added
     try {
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: ABSTRACT_TESTNET_CONFIG.chainId }],
       });
     } catch (switchError: any) {
-      // This error code indicates that the chain has not been added to MetaMask
       if (switchError.code === 4902) {
         try {
           await window.ethereum.request({
@@ -127,41 +106,104 @@ export class Web3Service {
     }
   }
 
-  async getFactoryContract(): Promise<ethers.Contract> {
-    if (!this.signer) {
-      throw new Error('Wallet not connected');
-    }
-    
-    return new ethers.Contract(CONTRACT_ADDRESSES.FACTORY, FACTORY_ABI, this.signer);
-  }
-
-  async getBondingCurveContract(address: string): Promise<ethers.Contract> {
-    if (!this.signer) {
-      throw new Error('Wallet not connected');
-    }
-    
-    return new ethers.Contract(address, BONDING_CURVE_ABI, this.signer);
-  }
-
-  async getTokenContract(address: string): Promise<ethers.Contract> {
-    if (!this.signer) {
-      throw new Error('Wallet not connected');
-    }
-    
-    return new ethers.Contract(address, TOKEN_ABI, this.signer);
-  }
-
-  async getBalance(address: string): Promise<string> {
+  async connectWallet(): Promise<string> {
     if (!this.provider) {
-      throw new Error('Provider not initialized');
+      await this.init();
     }
-    
-    const balance = await this.provider.getBalance(address);
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    return accounts[0];
+  }
+
+  async getBalance(address?: string): Promise<string> {
+    if (!this.provider) {
+      await this.init();
+    }
+    const balance = await this.provider!.getBalance(address || (await this.signer!.getAddress()));
     return ethers.formatEther(balance);
   }
 
+  private getBondingCurveContract(address: string) {
+    if (!this.signer) throw new Error('Web3 not initialized');
+    return new ethers.Contract(address, BondingCurveABI, this.signer);
+  }
+
+  private getTokenContract(address: string) {
+    if (!this.signer) throw new Error('Web3 not initialized');
+    return new ethers.Contract(address, TokenABI, this.signer);
+  }
+
+  async getBuyPrice(bondingCurveAddress: string, ethAmount: string): Promise<string> {
+    const contract = this.getBondingCurveContract(bondingCurveAddress);
+    const tokens = await contract.calculateTokensForETH(ethers.parseEther(ethAmount));
+    return ethers.formatEther(tokens);
+  }
+
+  async getSellPrice(bondingCurveAddress: string, tokenAmount: string): Promise<string> {
+    const contract = this.getBondingCurveContract(bondingCurveAddress);
+    const eth = await contract.calculateETHForTokens(ethers.parseEther(tokenAmount));
+    return ethers.formatEther(eth);
+  }
+
+  async getBondingCurveData(bondingCurveAddress: string) {
+    const contract = this.getBondingCurveContract(bondingCurveAddress);
+    const [virtualEth, realEth, tokenSupply, preBondingTarget, bondingTarget, isActive] = await Promise.all([
+      contract.virtualEth(),
+      contract.realEth(),
+      contract.tokenSupply(),
+      contract.preBondingTarget(),
+      contract.bondingTarget(),
+      contract.isActive(),
+    ]);
+
+    return {
+      virtualEth: ethers.formatEther(virtualEth),
+      realEth: ethers.formatEther(realEth),
+      tokenSupply: ethers.formatEther(tokenSupply),
+      preBondingTarget: ethers.formatEther(preBondingTarget),
+      bondingTarget: ethers.formatEther(bondingTarget),
+      isActive,
+    };
+  }
+
+  async getTokenData(tokenAddress: string) {
+    const contract = this.getTokenContract(tokenAddress);
+    const [name, symbol, totalSupply, bondingCurve] = await Promise.all([
+      contract.name(),
+      contract.symbol(),
+      contract.totalSupply(),
+      contract.bondingCurve(),
+    ]);
+
+    const bondingCurveData = await this.getBondingCurveData(bondingCurve);
+    const price = await this.getTokenPrice(bondingCurve);
+
+    return {
+      name,
+      symbol,
+      totalSupply: ethers.formatEther(totalSupply),
+      bondingCurve,
+      price,
+      ...bondingCurveData,
+    };
+  }
+
+  async getTokenPrice(bondingCurveAddress: string): Promise<string> {
+    const contract = this.getBondingCurveContract(bondingCurveAddress);
+    const price = await contract.getTokenPrice();
+    return ethers.formatEther(price);
+  }
+
   async getDeploymentFee(): Promise<string> {
-    const factory = await this.getFactoryContract();
+    if (!this.signer) {
+      await this.init();
+    }
+
+    const factory = new ethers.Contract(
+      CONTRACT_ADDRESSES.FACTORY,
+      FACTORY_ABI,
+      this.signer
+    );
+
     const fee = await factory.getDeploymentFee();
     return ethers.formatEther(fee);
   }
@@ -170,118 +212,82 @@ export class Web3Service {
     name: string,
     symbol: string,
     description: string,
-    image: string,
-    twitter: string,
-    telegram: string,
-    website: string
-  ): Promise<{ tokenAddress: string; bondingCurveAddress: string; txHash: string }> {
-    const factory = await this.getFactoryContract();
-    const fee = await factory.getDeploymentFee();
-    
-    const tx = await factory.deployBondingCurveSystem(
-      name,
-      symbol,
-      description,
-      image,
-      twitter,
-      telegram,
-      website,
-      { value: fee }
-    );
-    
-    const receipt = await tx.wait();
-    
-    // Parse the deployment event
-    const deployedEvent = receipt.logs.find((log: any) => 
-      log.topics[0] === ethers.id('BondingCurveSystemDeployed(address,address,address,string,string)')
-    );
-    
-    if (!deployedEvent) {
-      throw new Error('Deployment event not found');
+    imageUrl: string,
+    socialLinks: {
+      twitter?: string;
+      telegram?: string;
+      website?: string;
     }
-    
-    const decoded = ethers.AbiCoder.defaultAbiCoder().decode(
-      ['address', 'address', 'address', 'string', 'string'],
-      deployedEvent.data
-    );
-    
-    return {
-      bondingCurveAddress: decoded[0],
-      tokenAddress: decoded[1],
-      txHash: tx.hash
-    };
-  }
+  ) {
+    try {
+      if (!this.signer) {
+        await this.init();
+      }
 
-  async buyTokens(bondingCurveAddress: string, ethAmount: string): Promise<string> {
-    const bondingCurve = await this.getBondingCurveContract(bondingCurveAddress);
-    const tx = await bondingCurve.buy({ value: ethers.parseEther(ethAmount) });
-    await tx.wait();
-    return tx.hash;
-  }
+      const factory = new ethers.Contract(
+        CONTRACT_ADDRESSES.FACTORY,
+        FACTORY_ABI,
+        this.signer
+      );
 
-  async sellTokens(bondingCurveAddress: string, tokenAmount: string): Promise<string> {
-    const bondingCurve = await this.getBondingCurveContract(bondingCurveAddress);
-    const tx = await bondingCurve.sell(ethers.parseEther(tokenAmount));
-    await tx.wait();
-    return tx.hash;
-  }
+      const deploymentFee = await this.getDeploymentFee();
+      console.log('Deployment fee:', deploymentFee);
 
-  async getBondingCurveData(bondingCurveAddress: string): Promise<BondingCurveData> {
-    const bondingCurve = await this.getBondingCurveContract(bondingCurveAddress);
-    
-    const [virtualEth, realEth, tokenSupply, preBondingTarget, bondingTarget, isActive] = 
-      await Promise.all([
-        bondingCurve.virtualEth(),
-        bondingCurve.realEth(),
-        bondingCurve.tokenSupply(),
-        bondingCurve.preBondingTarget(),
-        bondingCurve.bondingTarget(),
-        bondingCurve.isActive()
-      ]);
-    
-    return {
-      virtualEth: ethers.formatEther(virtualEth),
-      realEth: ethers.formatEther(realEth),
-      tokenSupply: ethers.formatEther(tokenSupply),
-      preBondingTarget: ethers.formatEther(preBondingTarget),
-      bondingTarget: ethers.formatEther(bondingTarget),
-      isActive
-    };
-  }
+      console.log('Deploying token with params:', {
+        name,
+        symbol,
+        description,
+        imageUrl,
+        socialLinks,
+        deploymentFee
+      });
 
-  async getTokenData(tokenAddress: string): Promise<TokenData> {
-    const token = await this.getTokenContract(tokenAddress);
-    
-    const [name, symbol, supply] = await Promise.all([
-      token.name(),
-      token.symbol(),
-      token.totalSupply()
-    ]);
-    
-    return {
-      address: tokenAddress,
-      name,
-      symbol,
-      supply: ethers.formatEther(supply),
-      bondingCurve: '', // Will be filled by caller
-      creator: '' // Will be filled by caller
-    };
-  }
+      const tx = await factory.deployBondingCurveSystem(
+        name,
+        symbol,
+        description,
+        imageUrl,
+        socialLinks.twitter || '',
+        socialLinks.telegram || '',
+        socialLinks.website || '',
+        { value: ethers.parseEther(deploymentFee) }
+      );
 
-  async getBuyPrice(bondingCurveAddress: string, ethAmount: string): Promise<string> {
-    const bondingCurve = await this.getBondingCurveContract(bondingCurveAddress);
-    const tokenAmount = await bondingCurve.getBuyPrice(ethers.parseEther(ethAmount));
-    return ethers.formatEther(tokenAmount);
-  }
+      console.log('Transaction sent:', tx.hash);
+      const receipt = await tx.wait();
+      console.log('Transaction receipt:', receipt);
 
-  async getSellPrice(bondingCurveAddress: string, tokenAmount: string): Promise<string> {
-    const bondingCurve = await this.getBondingCurveContract(bondingCurveAddress);
-    const ethAmount = await bondingCurve.getSellPrice(ethers.parseEther(tokenAmount));
-    return ethers.formatEther(ethAmount);
+      const event = receipt.logs.find(
+        (log: any) => log.fragment?.name === 'BondingCurveSystemDeployed'
+      );
+
+      if (!event) {
+        console.error('Deployment event not found in logs:', receipt.logs);
+        throw new Error('Deployment event not found');
+      }
+
+      console.log('Deployment successful:', {
+        bondingCurveAddress: event.args[0],
+        tokenAddress: event.args[1]
+      });
+
+      return {
+        bondingCurveAddress: event.args[0],
+        tokenAddress: event.args[1],
+      };
+    } catch (error: any) {
+      console.error('Error in deployToken:', error);
+      if (error.code === 'INSUFFICIENT_FUNDS') {
+        throw new Error('Insufficient funds to deploy token');
+      } else if (error.code === 'UNPREDICTABLE_GAS_LIMIT') {
+        throw new Error('Transaction would fail. Please check your input parameters.');
+      } else {
+        throw new Error(`Failed to deploy token: ${error.message}`);
+      }
+    }
   }
 }
 
-// Global Web3 service instance
 export const web3Service = new Web3Service();
 
 // TypeScript declarations for window.ethereum

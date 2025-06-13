@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Header from './components/Header';
 import Home from './pages/Home';
@@ -18,67 +18,62 @@ function App() {
   const [wallet, setWallet] = useState<WalletState>({
     isConnected: false,
     address: '',
-    balance: '0'
+    balance: '0',
   });
   const [isLoading, setIsLoading] = useState(false);
 
+  const handleAccountsChanged = useCallback(async (accounts: string[]) => {
+    if (accounts.length > 0) {
+      const address = accounts[0];
+      const balance = await web3Service.getBalance();
+      setWallet({
+        isConnected: true,
+        address,
+        balance,
+      });
+    } else {
+      setWallet({
+        isConnected: false,
+        address: '',
+        balance: '0',
+      });
+    }
+  }, []);
+
   useEffect(() => {
-    checkWalletConnection();
-    
-    // Listen for account changes
+    const checkConnection = async () => {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) {
+          await handleAccountsChanged(accounts);
+        }
+      } catch (error) {
+        console.error('Error checking connection:', error);
+      }
+    };
+
+    checkConnection();
+
     if (window.ethereum) {
       window.ethereum.on('accountsChanged', handleAccountsChanged);
-      window.ethereum.on('chainChanged', handleChainChanged);
     }
 
     return () => {
       if (window.ethereum) {
         window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-        window.ethereum.removeListener('chainChanged', handleChainChanged);
       }
     };
-  }, []);
+  }, [handleAccountsChanged]);
 
-  const checkWalletConnection = async () => {
-    if (window.ethereum) {
-      try {
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-        if (accounts.length > 0) {
-          const address = accounts[0];
-          const balance = await web3Service.getBalance(address);
-          setWallet({
-            isConnected: true,
-            address,
-            balance
-          });
-        }
-      } catch (error) {
-        console.error('Error checking wallet connection:', error);
-      }
-    }
-  };
-
-  const handleAccountsChanged = (accounts: string[]) => {
-    if (accounts.length === 0) {
-      setWallet({ isConnected: false, address: '', balance: '0' });
-    } else {
-      handleWalletConnect();
-    }
-  };
-
-  const handleChainChanged = () => {
-    window.location.reload();
-  };
-
-  const handleWalletConnect = async () => {
+  const connectWallet = async () => {
     setIsLoading(true);
     try {
       const address = await web3Service.connectWallet();
-      const balance = await web3Service.getBalance(address);
+      const balance = await web3Service.getBalance();
       setWallet({
         isConnected: true,
         address,
-        balance
+        balance,
       });
     } catch (error) {
       console.error('Error connecting wallet:', error);
@@ -87,67 +82,41 @@ function App() {
     }
   };
 
-  const handleWalletDisconnect = () => {
-    setWallet({ isConnected: false, address: '', balance: '0' });
+  const disconnectWallet = () => {
+    setWallet({
+      isConnected: false,
+      address: '',
+      balance: '0',
+    });
   };
 
   return (
     <Router>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-        <Header 
+      <div className="min-h-screen bg-gray-100">
+        <Toaster position="top-right" />
+        <Header
           wallet={wallet}
-          onConnect={handleWalletConnect}
-          onDisconnect={handleWalletDisconnect}
           isLoading={isLoading}
+          onConnect={connectWallet}
+          onDisconnect={disconnectWallet}
         />
-        
         <main className="container mx-auto px-4 py-8">
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route 
-              path="/create" 
-              element={
-                wallet.isConnected ? 
-                <CreateToken wallet={wallet} /> : 
-                <Navigate to="/" replace />
-              } 
+            <Route
+              path="/create-token"
+              element={<CreateToken wallet={wallet} />}
             />
-            <Route path="/token/:address" element={<TokenDetail wallet={wallet} />} />
-            <Route 
-              path="/dashboard" 
-              element={
-                wallet.isConnected ? 
-                <Dashboard wallet={wallet} /> : 
-                <Navigate to="/" replace />
-              } 
+            <Route
+              path="/token/:address"
+              element={<TokenDetail wallet={wallet} />}
+            />
+            <Route
+              path="/dashboard"
+              element={<Dashboard wallet={wallet} />}
             />
           </Routes>
         </main>
-
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#363636',
-              color: '#fff',
-            },
-            success: {
-              duration: 3000,
-              iconTheme: {
-                primary: '#10B981',
-                secondary: '#FFFFFF',
-              },
-            },
-            error: {
-              duration: 5000,
-              iconTheme: {
-                primary: '#EF4444',
-                secondary: '#FFFFFF',
-              },
-            },
-          }}
-        />
       </div>
     </Router>
   );

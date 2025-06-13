@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import { web3Service } from '../utils/web3';
+import toast from 'react-hot-toast';
 
 interface WalletState {
   isConnected: boolean;
@@ -17,10 +17,12 @@ interface FormData {
   name: string;
   symbol: string;
   description: string;
-  image: string;
-  twitter: string;
-  telegram: string;
-  website: string;
+  imageUrl: string;
+  socialLinks: {
+    twitter?: string;
+    telegram?: string;
+    website?: string;
+  };
 }
 
 const CreateToken: React.FC<CreateTokenProps> = ({ wallet }) => {
@@ -29,18 +31,19 @@ const CreateToken: React.FC<CreateTokenProps> = ({ wallet }) => {
     name: '',
     symbol: '',
     description: '',
-    image: '',
-    twitter: '',
-    telegram: '',
-    website: ''
+    imageUrl: '',
+    socialLinks: {},
   });
   const [deploymentFee, setDeploymentFee] = useState('0');
-  const [isLoading, setIsLoading] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
 
   useEffect(() => {
+    if (!wallet.isConnected) {
+      navigate('/');
+      return;
+    }
     fetchDeploymentFee();
-  }, []);
+  }, [wallet.isConnected, navigate]);
 
   const fetchDeploymentFee = async () => {
     try {
@@ -48,20 +51,38 @@ const CreateToken: React.FC<CreateTokenProps> = ({ wallet }) => {
       setDeploymentFee(fee);
     } catch (error) {
       console.error('Error fetching deployment fee:', error);
+      toast.error('Failed to fetch deployment fee');
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    if (name.startsWith('social.')) {
+      const socialPlatform = name.split('.')[1];
+      setFormData((prev) => ({
+        ...prev,
+        socialLinks: {
+          ...prev.socialLinks,
+          [socialPlatform]: value,
+        },
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value,
+      }));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    if (!wallet.isConnected) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+
     if (!formData.name || !formData.symbol) {
       toast.error('Name and symbol are required');
       return;
@@ -72,240 +93,221 @@ const CreateToken: React.FC<CreateTokenProps> = ({ wallet }) => {
       return;
     }
 
-    setIsDeploying(true);
-    const loadingToast = toast.loading('Deploying your token...');
+    const walletBalance = parseFloat(wallet.balance);
+    const fee = parseFloat(deploymentFee);
 
+    if (walletBalance < fee) {
+      toast.error(`Insufficient balance. Required: ${fee} ETH`);
+      return;
+    }
+
+    setIsDeploying(true);
     try {
-      const result = await web3Service.deployToken(
+      await web3Service.deployToken(
         formData.name,
         formData.symbol,
         formData.description,
-        formData.image,
-        formData.twitter,
-        formData.telegram,
-        formData.website
+        formData.imageUrl,
+        formData.socialLinks
       );
-
-      toast.dismiss(loadingToast);
       toast.success('Token deployed successfully!');
-      
-      // Redirect to the token detail page
-      navigate(`/token/${result.tokenAddress}`);
-    } catch (error: any) {
-      toast.dismiss(loadingToast);
+      navigate('/dashboard');
+    } catch (error) {
       console.error('Error deploying token:', error);
-      toast.error(error.message || 'Failed to deploy token');
+      toast.error('Failed to deploy token');
     } finally {
       setIsDeploying(false);
     }
   };
 
-  const isFormValid = formData.name && formData.symbol && formData.symbol.length <= 10;
+  if (!wallet.isConnected) {
+    return null;
+  }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="card">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold gradient-text mb-2">Create Your Token</h1>
-          <p className="text-secondary-600">
-            Launch your token with automated bonding curve pricing
+          <h2 className="text-4xl font-bold text-gray-900 mb-3">Create New Token</h2>
+          <p className="text-lg text-gray-600">
+            Deploy your token with an automated bonding curve
           </p>
         </div>
 
-        {/* Deployment Fee Info */}
-        <div className="bg-primary-50 border border-primary-200 rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-primary-800">Deployment Fee</h3>
-              <p className="text-sm text-primary-600">Required to deploy your token contract</p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-primary-800">{deploymentFee} ETH</p>
-              <p className="text-sm text-primary-600">≈ ${(parseFloat(deploymentFee) * 2000).toFixed(2)} USD</p>
-            </div>
-          </div>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basic Information */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-secondary-800">Basic Information</h3>
-            
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-secondary-700 mb-2">
-                Token Name *
-              </label>
-              <input
-                type="text"
-                id="name"
-                name="name"
-                value={formData.name}
-                onChange={handleInputChange}
-                placeholder="e.g., My Awesome Token"
-                className="input-field"
-                required
-              />
-            </div>
-
-            <div>
-              <label htmlFor="symbol" className="block text-sm font-medium text-secondary-700 mb-2">
-                Token Symbol *
-              </label>
-              <input
-                type="text"
-                id="symbol"
-                name="symbol"
-                value={formData.symbol}
-                onChange={handleInputChange}
-                placeholder="e.g., MAT (max 10 characters)"
-                className="input-field"
-                maxLength={10}
-                required
-              />
-              <p className="text-xs text-secondary-500 mt-1">
-                {formData.symbol.length}/10 characters
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="description" className="block text-sm font-medium text-secondary-700 mb-2">
-                Description
-              </label>
-              <textarea
-                id="description"
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                placeholder="Describe your token and its purpose..."
-                rows={4}
-                className="input-field resize-none"
-              />
-            </div>
-          </div>
-
-          {/* Social Links */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-secondary-800">Social Links (Optional)</h3>
-            
-            <div>
-              <label htmlFor="image" className="block text-sm font-medium text-secondary-700 mb-2">
-                Logo URL
-              </label>
-              <input
-                type="url"
-                id="image"
-                name="image"
-                value={formData.image}
-                onChange={handleInputChange}
-                placeholder="https://example.com/logo.png"
-                className="input-field"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="website" className="block text-sm font-medium text-secondary-700 mb-2">
-                Website
-              </label>
-              <input
-                type="url"
-                id="website"
-                name="website"
-                value={formData.website}
-                onChange={handleInputChange}
-                placeholder="https://yourproject.com"
-                className="input-field"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="twitter" className="block text-sm font-medium text-secondary-700 mb-2">
-                  Twitter
-                </label>
-                <input
-                  type="text"
-                  id="twitter"
-                  name="twitter"
-                  value={formData.twitter}
-                  onChange={handleInputChange}
-                  placeholder="@username"
-                  className="input-field"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="telegram" className="block text-sm font-medium text-secondary-700 mb-2">
-                  Telegram
-                </label>
-                <input
-                  type="text"
-                  id="telegram"
-                  name="telegram"
-                  value={formData.telegram}
-                  onChange={handleInputChange}
-                  placeholder="t.me/channel"
-                  className="input-field"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Bonding Curve Info */}
-          <div className="bg-secondary-50 border border-secondary-200 rounded-lg p-4">
-            <h3 className="font-semibold text-secondary-800 mb-2">Bonding Curve Details</h3>
-            <div className="text-sm text-secondary-600 space-y-1">
-              <p>• Initial price starts near zero</p>
-              <p>• Price increases with each purchase</p>
-              <p>• Automatic liquidity provision</p>
-              <p>• Fair launch for all participants</p>
-            </div>
-          </div>
-
-          {/* Wallet Balance Check */}
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="bg-white shadow-2xl rounded-3xl p-8 mb-8 transform hover:scale-[1.01] transition-transform duration-200">
+          <div className="mb-8 p-4 bg-primary/5 rounded-2xl">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-yellow-800">Your Balance</h3>
-                <p className="text-sm text-yellow-600">Make sure you have enough ETH for deployment</p>
+                <h3 className="text-lg font-semibold text-gray-900">Deployment Fee</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  {deploymentFee} ETH (≈ ${(parseFloat(deploymentFee) * 2000).toFixed(2)})
+                </p>
               </div>
               <div className="text-right">
-                <p className="text-xl font-bold text-yellow-800">{wallet.balance} ETH</p>
-                <p className={`text-sm ${
-                  parseFloat(wallet.balance) >= parseFloat(deploymentFee) 
-                    ? 'text-green-600' 
-                    : 'text-red-600'
-                }`}>
-                  {parseFloat(wallet.balance) >= parseFloat(deploymentFee) 
-                    ? '✅ Sufficient balance' 
-                    : '❌ Insufficient balance'
-                  }
+                <p className="text-sm text-gray-600">Your Balance</p>
+                <p className="text-lg font-semibold text-gray-900">{wallet.balance} ETH</p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label
+                  htmlFor="name"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Token Name
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  id="name"
+                  required
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-colors duration-200"
+                  placeholder="e.g., My Awesome Token"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="symbol"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Token Symbol
+                </label>
+                <input
+                  type="text"
+                  name="symbol"
+                  id="symbol"
+                  required
+                  maxLength={10}
+                  value={formData.symbol}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-colors duration-200"
+                  placeholder="e.g., MAT"
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  Maximum 10 characters
                 </p>
               </div>
             </div>
-          </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={!isFormValid || isDeploying || parseFloat(wallet.balance) < parseFloat(deploymentFee)}
-            className="w-full btn-primary py-4 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isDeploying ? (
-              <div className="flex items-center justify-center space-x-2">
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span>Deploying Token...</span>
+            <div>
+              <label
+                htmlFor="description"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Description
+              </label>
+              <textarea
+                name="description"
+                id="description"
+                rows={4}
+                value={formData.description}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-colors duration-200"
+                placeholder="Describe your token..."
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="imageUrl"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                Token Image URL
+              </label>
+              <input
+                type="url"
+                name="imageUrl"
+                id="imageUrl"
+                value={formData.imageUrl}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-colors duration-200"
+                placeholder="https://example.com/token-image.png"
+              />
+            </div>
+
+            <div className="bg-gray-50 p-6 rounded-2xl">
+              <h4 className="text-lg font-medium text-gray-900 mb-4">
+                Social Links (Optional)
+              </h4>
+              <div className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="social.twitter"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Twitter
+                  </label>
+                  <input
+                    type="url"
+                    name="social.twitter"
+                    id="social.twitter"
+                    value={formData.socialLinks.twitter || ''}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-colors duration-200"
+                    placeholder="https://twitter.com/your-handle"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="social.telegram"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Telegram
+                  </label>
+                  <input
+                    type="url"
+                    name="social.telegram"
+                    id="social.telegram"
+                    value={formData.socialLinks.telegram || ''}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-colors duration-200"
+                    placeholder="https://t.me/your-group"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="social.website"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Website
+                  </label>
+                  <input
+                    type="url"
+                    name="social.website"
+                    id="social.website"
+                    value={formData.socialLinks.website || ''}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-colors duration-200"
+                    placeholder="https://your-website.com"
+                  />
+                </div>
               </div>
-            ) : (
-              `Deploy Token (${deploymentFee} ETH)`
-            )}
-          </button>
+            </div>
 
-          {!isFormValid && (
-            <p className="text-sm text-red-600 text-center">
-              Please fill in all required fields
-            </p>
-          )}
-        </form>
+            <div className="pt-6">
+              <button
+                type="submit"
+                disabled={isDeploying}
+                className="w-full py-4 px-6 rounded-xl bg-blue text-black font-semibold text-lg hover:bg-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transform hover:scale-[1.02] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+              >
+                {isDeploying ? (
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Deploying Token...</span>
+                  </div>
+                ) : (
+                  'Deploy Token'
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
